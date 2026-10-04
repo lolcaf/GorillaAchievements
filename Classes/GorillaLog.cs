@@ -3,12 +3,12 @@ using System;
 using System.IO;
 using UnityEngine;
 
-namespace GorillaAchievements.Classes;
+namespace GorillaAchievements.Internal;
 
 /// <summary>
 /// Class for writing to logs.
 /// </summary>
-public class GorillaLog
+internal class GorillaLog
 {
     private readonly StreamWriter _currentWriter;
 
@@ -27,7 +27,7 @@ public class GorillaLog
         _currentWriter.Write(fmt);
         Debug.Log(fmt);
 
-        if (Constants.DebugMode)
+        if (Plugin.debugMode)
             NotificationSystem.Send(fmt, null);
     }
 
