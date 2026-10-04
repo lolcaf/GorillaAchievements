@@ -1,10 +1,10 @@
 using BepInEx;
 using BepInEx.Bootstrap;
-using BepInEx.Configuration;
 using GorillaAchievements.Classes;
 using GorillaAchievements.MonoBehaviors;
 using GorillaAchievements.Patches;
 using GorillaAchievements.Utilities;
+using GorillaAchievements.Internal;
 using GorillaLocomotion;
 using Photon.Pun;
 using System.Collections;
@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.Linq;
 using TMPro;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace GorillaAchievements;
 
@@ -22,7 +23,9 @@ public class Plugin : BaseUnityPlugin
 
     public static Plugin Instance;
 
-    public static Achievement[] allAchievements;
+    internal static Achievement[] allAchievements;
+
+    public static List<Achievement> realAllAchievements { get; private set; } = new List<Achievement>();
 
     private float lastIntervalTime;
 
@@ -40,7 +43,7 @@ public class Plugin : BaseUnityPlugin
 
     private GameObject achievementUI;
 
-    public List<NetPlayer> taggedYou = new List<NetPlayer>();
+    internal List<NetPlayer> taggedYou = new List<NetPlayer>();
 
     private Vector3 lastPlayerPos;
 
@@ -49,6 +52,10 @@ public class Plugin : BaseUnityPlugin
     private List<string> visitedLobbies = new List<string>();
 
     private List<GTZone> visitedZones = new List<GTZone>();
+
+    private bool menuOpen;
+
+    public static bool debugMode = false;
 
     private readonly string[] ghostCodes =
     [
@@ -111,10 +118,15 @@ public class Plugin : BaseUnityPlugin
             A("It's Crowded Here", "Play in a lobby with 15+ players", Difficulty.Rare, Vector3.zero),
             A("Back Again", "Join a public lobby you were previously in", Difficulty.Rare, Vector3.zero), // Confirmed Working
             A("AAC", "Meet an AA Creator", Difficulty.Hard, Vector3.zero), // Confirmed Working
-            A("Finger Painter", "Meet a Finger Painter", Difficulty.Extreme, Vector3.zero),
+            A("Finger Painter", "Meet a Finger Painter", Difficulty.Extreme, Vector3.zero), // Probably working bc aac works
         ];
     }
 
+    /// <summary>
+    /// Check if an achievement is owned
+    /// </summary>
+    /// <param name="achievement">The achievement to check</param>
+    /// <returns>bool representing whether or not it is owned</returns>
     public static bool AchievementOwned(Achievement achievement)
     {
         return achievement != null && SaveSystem.userSave.unlockedAchievements.Contains(achievement.name);
@@ -125,9 +137,29 @@ public class Plugin : BaseUnityPlugin
         if (GTPlayer.Instance == null || GorillaTagger.Instance == null)
             return;
 
+        if (Keyboard.current.gKey.wasPressedThisFrame)
+        {
+            menuOpen = !menuOpen;
+        }
+
         NotificationSystem.Tick();
         if (Time.time > lastIntervalTime)
             AchievementCheck();
+    }
+
+    private void OnGUI()
+    {
+        if (!menuOpen)
+            return;
+
+        GUI.Box(new Rect(10, 10, 250, 250), "Gorilla Achievements");
+
+        if (GUI.Button(new Rect(55, 40, 150, 20), "Clear Save"))
+        {
+            SaveSystem.userSave.unlockedAchievements.Clear();
+        }
+
+        GUI.Label(new Rect(35, 70, 200, 20), $"You unlocked {SaveSystem.userSave.unlockedAchievements.Count} of {realAllAchievements.Count} achievements");
     }
 
     private void AchievementCheck()
@@ -137,7 +169,7 @@ public class Plugin : BaseUnityPlugin
         if (GTPlayer.Instance?.RigidbodyVelocity.magnitude > 15)
             AwardAchievement(FindAchievement("Zoomies"));
 
-        if (GTPlayer.Instance?.HeadInWater == true)
+        if (GTPlayer.Instance?.InWater == true)
         {
             if (GTPlayer.Instance.RigidbodyVelocity.y < -10 && AchievementOwned(FindAchievement("Swimmer")))
                 AwardAchievement(FindAchievement("Splash Zone"));
@@ -158,22 +190,35 @@ public class Plugin : BaseUnityPlugin
         lastPlayerPos = GTPlayer.Instance.transform.position;
     }
 
-    private static Achievement A(string name, string description, Difficulty difficulty, Vector3 pos, bool hidden = false)
+    /// <summary>
+    /// Use this method to create a new method
+    /// </summary>
+    /// <param name="name">The name you want your achievement to have</param>
+    /// <param name="description">The description of your achievement</param>
+    /// <param name="difficulty">The difficulty of the achievement</param>
+    /// <param name="pos">The position to reach to award (Vector3.zero to not have a position)</param>
+    /// <returns>An Achievement</returns>
+    public static Achievement A(string name, string description, Difficulty difficulty, Vector3 pos)
     {
         Achievement ach = new Achievement
         {
             name = name,
             description = description,
-            hidden = hidden,
             difficulty = difficulty
         };
 
         if (pos != Vector3.zero)
             AwardTrigger.Create(pos, ach);
 
+        realAllAchievements.Add(ach);
+
         return ach;
     }
 
+    /// <summary>
+    /// Award an achievement (includes effects)
+    /// </summary>
+    /// <param name="achievement">The achievement to award</param>
     public void AwardAchievement(Achievement achievement)
     {
         if (achievement == null || AchievementOwned(achievement))
@@ -183,9 +228,14 @@ public class Plugin : BaseUnityPlugin
         NotificationSystem.Send($"You got the {achievement.name} achievement! ({achievement.difficulty})", achievement);
     }
 
+    /// <summary>
+    /// Find an achievement by name (null if not found)
+    /// </summary>
+    /// <param name="name">The name of the achievement you wanna find</param>
+    /// <returns>The achievement (null of not found)</returns>
     public static Achievement FindAchievement(string name)
     {
-        foreach (Achievement ach in allAchievements)
+        foreach (Achievement ach in realAllAchievements)
         {
             if (ach.name == name)
                 return ach;
@@ -235,7 +285,7 @@ public class Plugin : BaseUnityPlugin
             AwardAchievement(FindAchievement("Pro Modder"));
     }
 
-    public void AwardEffects(bool rare, Achievement ach)
+    internal void AwardEffects(bool rare, Achievement ach)
     {
         StartCoroutine(AwardEffectsRoutine(rare, ach));
     }
